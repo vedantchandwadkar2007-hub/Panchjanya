@@ -245,3 +245,6 @@ python evaluate.py
 ## Web UI
 To launch the interactive Streamlit interface:
 `python -m streamlit run app.py`
+## Task 7: Advanced Tracing & Observability
+We implemented a custom Python telemetry tracer to track latency, token usage, and tool calls. To see the automated self-diagnosis and "Before vs. After" metrics:
+`python telemetry.py`
