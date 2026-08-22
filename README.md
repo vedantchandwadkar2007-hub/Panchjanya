@@ -238,3 +238,7 @@ Then open `frontend/index.html` directly in your browser (double-click it, or ri
 We implemented an adversarial agent to stress-test the intelligence pipeline. 
 To run the adversarial evaluation:
 `python your_adversarial_file_name.py`
+## Task 6: Evaluation & Benchmarks
+To run the automated benchmark suite across normal, ambiguous, adversarial, contradictory, incomplete, and tool-failure scenarios:
+```bash
+python evaluate.py
