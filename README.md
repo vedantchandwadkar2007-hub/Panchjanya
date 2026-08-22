@@ -234,3 +234,7 @@ Then open `frontend/index.html` directly in your browser (double-click it, or ri
 
 \- This is a hackathon prototype: no auth, no rate limiting, no persistence beyond in-memory conversation state (`MemorySaver`). Not intended for production deployment as-is.
 
+## Task 5: Adversarial Agent
+We implemented an adversarial agent to stress-test the intelligence pipeline. 
+To run the adversarial evaluation:
+`python your_adversarial_file_name.py`
