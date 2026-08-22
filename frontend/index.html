@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SIGNAL — Research &amp; Competitor Tracking Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E11;
+    --surface:#12161B;
+    --surface-2:#171C22;
+    --border:#232931;
+    --text:#E8ECEF;
+    --muted:#8B96A3;
+    --teal:#4FD1C5;
+    --teal-dim:#2A6E68;
+    --amber:#F0A83B;
+    --red:#E5645A;
+    --font-display:'IBM Plex Mono', monospace;
+    --font-body:'IBM Plex Sans', sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-body);
+    min-height:100vh;
+    background-image:
+      linear-gradient(rgba(79,209,197,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79,209,197,0.025) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 28px;
+    border-bottom:1px solid var(--border);
+    background:rgba(11,14,17,0.9);
+    position:sticky; top:0; z-index:10;
+    backdrop-filter:blur(6px);
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brand .mark{
+    width:10px; height:10px; border-radius:50%;
+    background:var(--teal);
+    box-shadow:0 0 0 3px rgba(79,209,197,0.15);
+  }
+  .brand h1{
+    font-family:var(--font-display);
+    font-size:14px;
+    letter-spacing:0.18em;
+    font-weight:600;
+    color:var(--text);
+  }
+  .brand .sub{
+    font-family:var(--font-display);
+    font-size:11px;
+    color:var(--muted);
+    letter-spacing:0.05em;
+  }
+  .status-pill{
+    font-family:var(--font-display);
+    font-size:11px;
+    letter-spacing:0.08em;
+    padding:6px 12px;
+    border:1px solid var(--border);
+    border-radius:20px;
+    color:var(--muted);
+    display:flex; align-items:center; gap:8px;
+  }
+  .status-pill .dot{
+    width:7px; height:7px; border-radius:50%;
+    background:var(--muted);
+    transition:background 0.2s ease;
+  }
+  .status-pill.live .dot{
+    background:var(--teal);
+    animation:pulse 1.2s ease-in-out infinite;
+  }
+  .status-pill.live{ color:var(--teal); border-color:var(--teal-dim); }
+  .status-pill.done .dot{ background:var(--amber); animation:none; }
+  .status-pill.done{ color:var(--amber); border-color:#5c4420; }
+  @keyframes pulse{
+    0%,100%{ box-shadow:0 0 0 0 rgba(79,209,197,0.5); }
+    50%{ box-shadow:0 0 0 6px rgba(79,209,197,0); }
+  }
+
+  main{
+    display:grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap:1px;
+    background:var(--border);
+    min-height:calc(100vh - 61px);
+  }
+  @media (max-width: 900px){
+    main{ grid-template-columns: 1fr; }
+  }
+  .panel{ background:var(--bg); padding:26px 28px 40px; }
+
+  .query-box{
+    display:flex; gap:10px; margin-bottom:26px;
+  }
+  .query-box input{
+    flex:1;
+    background:var(--surface);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:13px 16px;
+    border-radius:8px;
+    font-family:var(--font-body);
+    font-size:14px;
+    outline:none;
+    transition:border-color 0.15s ease;
+  }
+  .query-box input:focus{ border-color:var(--teal-dim); }
+  .query-box input::placeholder{ color:var(--muted); }
+  .query-box button{
+    background:var(--teal);
+    color:#06201D;
+    border:none;
+    padding:0 22px;
+    border-radius:8px;
+    font-family:var(--font-display);
+    font-size:12px;
+    letter-spacing:0.06em;
+    font-weight:600;
+    cursor:pointer;
+    transition:filter 0.15s ease;
+  }
+  .query-box button:hover{ filter:brightness(1.1); }
+  .query-box button:disabled{ background:var(--border); color:var(--muted); cursor:not-allowed; }
+
+  .section-label{
+    font-family:var(--font-display);
+    font-size:11px;
+    letter-spacing:0.14em;
+    color:var(--muted);
+    margin-bottom:16px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .section-label::after{
+    content:''; flex:1; height:1px; background:var(--border);
+  }
+
+  .trace{ position:relative; padding-left:22px; }
+  .trace::before{
+    content:''; position:absolute; left:6px; top:4px; bottom:4px;
+    width:1px; background:var(--border);
+  }
+  .step{
+    position:relative;
+    margin-bottom:16px;
+    animation:appear 0.25s ease;
+  }
+  @keyframes appear{ from{ opacity:0; transform:translateY(4px);} to{ opacity:1; transform:translateY(0);} }
+  .step::before{
+    content:''; position:absolute; left:-22px; top:5px;
+    width:9px; height:9px; border-radius:50%;
+    background:var(--surface); border:2px solid var(--muted);
+  }
+  .step.act::before{ border-color:var(--teal); background:var(--teal); }
+  .step.observe::before{ border-color:var(--amber); background:var(--amber); }
+  .step.error::before{ border-color:var(--red); background:var(--red); }
+  .step .tag{
+    font-family:var(--font-display);
+    font-size:10.5px;
+    letter-spacing:0.1em;
+    font-weight:600;
+    margin-bottom:4px;
+  }
+  .step.act .tag{ color:var(--teal); }
+  .step.observe .tag{ color:var(--amber); }
+  .step.error .tag{ color:var(--red); }
+  .step .body{
+    font-family:var(--font-display);
+    font-size:12.5px;
+    line-height:1.5;
+    color:var(--text);
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:10px 12px;
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
+  .empty-state{
+    color:var(--muted);
+    font-family:var(--font-display);
+    font-size:12.5px;
+    line-height:1.7;
+  }
+
+  .briefing-card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:22px 24px;
+    line-height:1.65;
+    font-size:14.5px;
+    color:var(--text);
+    white-space:pre-wrap;
+  }
+  .briefing-card:empty{ display:none; }
+  .briefing-placeholder{
+    color:var(--muted);
+    font-size:13.5px;
+    line-height:1.7;
+    border:1px dashed var(--border);
+    border-radius:10px;
+    padding:24px;
+  }
+  .briefing-placeholder .k{ color:var(--teal); font-family:var(--font-display); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark"></div>
+    <div>
+      <h1>SIGNAL</h1>
+      <div class="sub">research &amp; competitor tracking agent</div>
+    </div>
+  </div>
+  <div class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">idle</span></div>
+</header>
+
+<main>
+  <section class="panel">
+    <div class="query-box">
+      <input id="queryInput" type="text" placeholder="e.g. Track recent funding + product moves for two rivals in edge AI" />
+      <button id="submitBtn">RUN</button>
+    </div>
+    <div class="section-label">live trace</div>
+    <div class="trace" id="trace">
+      <div class="empty-state">Awaiting query. Every reasoning step — which tool is called, and what it returns — will stream here in real time.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-label">briefing</div>
+    <div id="briefingWrap">
+      <div class="briefing-placeholder">
+        The agent's <span class="k">Final Answer</span> — Summary, Key Findings, Suggested Next Actions — renders here once the trace completes.
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const API_BASE = "http://localhost:8000";
+
+const input = document.getElementById('queryInput');
+const btn = document.getElementById('submitBtn');
+const trace = document.getElementById('trace');
+const briefingWrap = document.getElementById('briefingWrap');
+const statusPill = document.getElementById('statusPill');
+const statusText = document.getElementById('statusText');
+
+function setStatus(mode, label){
+  statusPill.className = 'status-pill' + (mode ? ' ' + mode : '');
+  statusText.textContent = label;
+}
+
+function addStep(kind, tag, body){
+  const empty = trace.querySelector('.empty-state');
+  if (empty) empty.remove();
+  const el = document.createElement('div');
+  el.className = 'step ' + kind;
+  el.innerHTML = `<div class="tag">${tag}</div><div class="body"></div>`;
+  el.querySelector('.body').textContent = body;
+  trace.appendChild(el);
+  trace.scrollTop = trace.scrollHeight;
+}
+
+async function runQuery(){
+  const q = input.value.trim();
+  if (!q) return;
+
+  trace.innerHTML = '';
+  briefingWrap.innerHTML = '<div class="briefing-placeholder">Reasoning in progress…</div>';
+  btn.disabled = true;
+  setStatus('live', 'reasoning');
+
+  try{
+    const res = await fetch(`${API_BASE}/api/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q })
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while(true){
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop();
+
+      for (const part of parts){
+        const line = part.trim();
+        if (!line.startsWith('data:')) continue;
+        const evt = JSON.parse(line.slice(5).trim());
+
+        if (evt.type === 'act'){
+          addStep('act', `ACT · ${evt.tool}`, JSON.stringify(evt.args));
+        } else if (evt.type === 'observe'){
+          addStep('observe', `OBSERVE · ${evt.tool}`, evt.content);
+        } else if (evt.type === 'final'){
+          briefingWrap.innerHTML = '<div class="briefing-card"></div>';
+          briefingWrap.querySelector('.briefing-card').textContent = evt.content;
+          setStatus('done', 'complete');
+        } else if (evt.type === 'error'){
+          addStep('error', 'ERROR', evt.message);
+          setStatus('done', 'error');
+        } else if (evt.type === 'done'){
+          if (statusText.textContent === 'reasoning') setStatus('done', 'complete');
+        }
+      }
+    }
+  } catch (err){
+    addStep('error', 'ERROR', 'Could not reach agent backend: ' + err.message);
+    setStatus('done', 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+btn.addEventListener('click', runQuery);
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter') runQuery(); });
+</script>
+
+</body>
+</html>
