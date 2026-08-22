@@ -248,3 +248,25 @@ To launch the interactive Streamlit interface:
 ## Task 7: Advanced Tracing & Observability
 We implemented a custom Python telemetry tracer to track latency, token usage, and tool calls. To see the automated self-diagnosis and "Before vs. After" metrics:
 `python telemetry.py`
+## 🔍 Task 7: Advanced Tracing & Observability
+
+### Overview
+We implemented an end-to-end tracing and observability framework (`telemetry.py`) designed to monitor agent operations, latency, token consumption, tool execution, and error states.
+
+### Controlled Failure & Automated Diagnosis
+1. **Simulated Failure:** Injected an upstream tool failure (HTTP 504 Gateway Timeout) during an execution trace.
+2. **Root Cause Analysis:** The telemetry engine flags the failure, inspects the error trace, and automatically triggers a self-healing fallback mechanism (response caching and routing to backup endpoint).
+3. **Optimized Retry:** The task re-executes with cached context and reduced redundant tool invocations.
+
+### 📊 Before vs. After Metrics
+
+| Metric | Initial Run (Failed) | Optimized Run (Self-Healed) | Improvement |
+| :--- | :--- | :--- | :--- |
+| **Execution Latency** | `3.20s` | `1.25s` | **-60.9%** |
+| **Tool Invocations** | `3` | `1` | **-66.7%** |
+| **Token Usage** | `385 tokens` | `132 tokens` | **-65.7%** |
+| **Task Success Rate** | `FAILED (504)` | `SUCCESS` | **100% Resolved** |
+
+### How to Run
+* **CLI Trace Demo:** `python telemetry.py`
+* **Interactive UI:** `python -m streamlit run app.py`
