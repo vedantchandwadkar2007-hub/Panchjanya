@@ -242,3 +242,6 @@ To run the adversarial evaluation:
 To run the automated benchmark suite across normal, ambiguous, adversarial, contradictory, incomplete, and tool-failure scenarios:
 ```bash
 python evaluate.py
+## Web UI
+To launch the interactive Streamlit interface:
+`python -m streamlit run app.py`
