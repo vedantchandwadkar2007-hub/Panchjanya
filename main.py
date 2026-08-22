@@ -24,8 +24,8 @@ def check_env():
         sys.exit(1)
 
 
-def get_llm(model_name: str = "llama-3.1-8b-instant", temp: float = 0.1) -> ChatGroq:
-    """Returns the Groq LLM. llama-3.1-8b-instant is extremely fast and token-efficient."""
+def get_llm(model_name: str = "openai/gpt-oss-20b", temp: float = 0.1) -> ChatGroq:
+    """Returns the Groq LLM. openai/gpt-oss-20b is extremely fast and token-efficient."""
     return ChatGroq(model=model_name, temperature=temp)
 
 
@@ -34,7 +34,7 @@ def extract_text(content) -> str:
     if isinstance(content, list):
         return "\n".join(str(p) for p in content if p)
     return str(content)
-
+F
 
 # ---------------------------------------------------------------------------
 # 2. Resilient Tools (Task 5: Failure Recovery & Tool Fallback)
@@ -100,7 +100,7 @@ class RouteSchema(BaseModel):
 # ---------------------------------------------------------------------------
 def supervisor_router_node(state: AgentState) -> Dict[str, Any]:
     print("\n[SUPERVISOR] Formulating dynamic routing plan...")
-    llm = get_llm("llama-3.1-8b-instant")
+    llm = get_llm("openai/gpt-oss-20b")
     structured_llm = llm.with_structured_output(RouteSchema)
     prompt = f"Analyze this user query and decide the routing strategy: '{state['query']}'"
     
@@ -158,7 +158,7 @@ def evaluator_node(state: AgentState) -> Dict[str, Any]:
 
 def synthesis_node(state: AgentState) -> Dict[str, Any]:
     print("[SUPERVISOR] Synthesizing final briefing...")
-    llm = get_llm("llama-3.1-8b-instant", temp=0.3)
+    llm = get_llm("openai/gpt-oss-20b", temp=0.3)
     prompt = f"""
     You are the Lead Intelligence Strategist.
     Original Query: {state['query']}
