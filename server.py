@@ -1,42 +1,45 @@
 """
-FastAPI backend for the Research & Competitor Tracking agent.
+FastAPI backend for the multi-agent Research & Competitor Tracking system.
 
-Exposes:
-  POST /api/query   -> Server-Sent Events stream of the agent's
-                        Reason -> Act -> Observe -> Final Answer loop.
-  GET  /api/health   -> simple health check
+Streams, over Server-Sent Events:
+  - the Supervisor's routing decision
+  - each specialist agent's own ACT/OBSERVE trace (tagged with agent name)
+  - the Supervisor's final synthesized briefing
 
 Run:
     pip install -r requirements.txt
-    export GOOGLE_API_KEY="..."
-    export TAVILY_API_KEY="..."
+    (fill .env with GOOGLE_API_KEY and TAVILY_API_KEY)
     uvicorn server:app --reload --port 8000
-
-Then open frontend/index.html (it points at http://localhost:8000).
 """
 
 import json
-import uuid
 
 from dotenv import load_dotenv
-load_dotenv()  # reads .env file in the current directory, if present
+load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 
-from main import build_agent, SYSTEM_PROMPT, check_env
+from main import (
+    check_env,
+    get_llm,
+    route_query,
+    synthesize,
+    build_competitor_agent,
+    build_research_agent,
+    extract_text,
+)
 
 check_env()
-agent = build_agent()
 
-app = FastAPI(title="Research & Competitor Tracking Agent API")
+app = FastAPI(title="Research & Competitor Tracking — Multi-Agent API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten this for real deployment
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -44,46 +47,81 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     query: str
-    thread_id: str | None = None
 
 
 def sse(event_type: str, payload: dict) -> str:
     return f"data: {json.dumps({'type': event_type, **payload})}\n\n"
 
 
-def stream_agent_response(query: str, thread_id: str):
-    config = {"configurable": {"thread_id": thread_id}}
-    messages = [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=query)]
+def run_specialist_streaming(agent, query: str, agent_name: str):
+    """Yields SSE events for one specialist's ReAct loop; returns its final text."""
+    final_text = ""
+    for step in agent.stream({"messages": [HumanMessage(content=query)]}, stream_mode="values"):
+        last_msg = step["messages"][-1]
 
-    yield sse("status", {"message": "Agent started"})
+        if getattr(last_msg, "tool_calls", None):
+            for tc in last_msg.tool_calls:
+                yield sse("act", {"agent": agent_name, "tool": tc["name"], "args": tc["args"]})
+
+        elif last_msg.type == "tool":
+            yield sse("observe", {
+                "agent": agent_name,
+                "tool": last_msg.name,
+                "content": str(last_msg.content)[:800],
+            })
+
+        elif last_msg.type == "ai" and last_msg.content:
+            final_text = extract_text(last_msg.content)
+
+    return final_text
+
+
+def stream_multi_agent_response(query: str):
+    llm = get_llm()
+
+    yield sse("status", {"message": "Supervisor deciding routing..."})
 
     try:
-        for step in agent.stream({"messages": messages}, config=config, stream_mode="values"):
-            last_msg = step["messages"][-1]
+        decision = route_query(llm, query)
+        yield sse("supervisor_route", {
+            "reasoning": decision.reasoning,
+            "need_competitor_agent": decision.need_competitor_agent,
+            "need_research_agent": decision.need_research_agent,
+        })
 
-            if getattr(last_msg, "tool_calls", None):
-                for tc in last_msg.tool_calls:
-                    yield sse("act", {"tool": tc["name"], "args": tc["args"]})
+        findings = {}
 
-            elif last_msg.type == "tool":
-                content = str(last_msg.content)
-                yield sse("observe", {
-                    "tool": last_msg.name,
-                    "content": content[:800],
-                })
+        if decision.need_competitor_agent:
+            yield sse("agent_start", {"agent": "CompetitorIntelAgent"})
+            agent = build_competitor_agent()
+            gen = run_specialist_streaming(agent, query, "CompetitorIntelAgent")
+            final_text = ""
+            try:
+                while True:
+                    event = next(gen)
+                    yield event
+            except StopIteration as stop:
+                final_text = stop.value or ""
+            findings["CompetitorIntelAgent"] = final_text
+            yield sse("agent_done", {"agent": "CompetitorIntelAgent"})
 
-            elif last_msg.type == "ai" and last_msg.content:
-                content = last_msg.content
-                if isinstance(content, list):
-                    # Gemini can return content as a list of parts (text/dict blocks)
-                    text_parts = []
-                    for part in content:
-                        if isinstance(part, str):
-                            text_parts.append(part)
-                        elif isinstance(part, dict):
-                            text_parts.append(part.get("text", ""))
-                    content = "\n".join(p for p in text_parts if p)
-                yield sse("final", {"content": content})
+        if decision.need_research_agent:
+            yield sse("agent_start", {"agent": "ResearchTrendsAgent"})
+            agent = build_research_agent()
+            gen = run_specialist_streaming(agent, query, "ResearchTrendsAgent")
+            final_text = ""
+            try:
+                while True:
+                    event = next(gen)
+                    yield event
+            except StopIteration as stop:
+                final_text = stop.value or ""
+            findings["ResearchTrendsAgent"] = final_text
+            yield sse("agent_done", {"agent": "ResearchTrendsAgent"})
+
+        yield sse("status", {"message": "Supervisor synthesizing final briefing..."})
+        final_briefing = synthesize(llm, query, findings)
+        yield sse("final", {"content": final_briefing})
 
     except Exception as e:
         yield sse("error", {"message": str(e)})
@@ -93,9 +131,8 @@ def stream_agent_response(query: str, thread_id: str):
 
 @app.post("/api/query")
 def query(req: QueryRequest):
-    thread_id = req.thread_id or str(uuid.uuid4())
     return StreamingResponse(
-        stream_agent_response(req.query, thread_id),
+        stream_multi_agent_response(req.query),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

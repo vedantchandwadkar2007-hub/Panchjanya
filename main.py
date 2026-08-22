@@ -1,21 +1,31 @@
 """
-Autonomous Research & Competitor Tracking Agent
-------------------------------------------------
+Autonomous Research & Competitor Tracking Agent — Multi-Agent Architecture
+---------------------------------------------------------------------------
 Theme: Research & Competitor Tracking
-Pattern: ReAct (Reason -> Act -> Observe -> Final Answer) via LangGraph's
-         prebuilt create_react_agent, powered by Google Gemini.
 
-Tools:
-  1. web_search      -> Tavily Search API (news, competitor moves, blogs, launches)
-  2. research_search  -> arXiv API (academic papers / research trend tracking)
+Architecture:
+    SUPERVISOR (Gemini) decides, per query, which specialist agent(s) are
+    needed, then orchestrates them and synthesizes their outputs into one
+    final briefing.
 
-The agent dynamically decides which tool(s) to call based on the user's query,
-observes tool output, loops as needed, and produces a final synthesized answer.
+    Specialist 1 — CompetitorIntelAgent
+        Responsibility: live news, competitor moves, funding, product
+        launches, market signals. Own ReAct loop. Own tool: web_search
+        (Tavily).
+
+    Specialist 2 — ResearchTrendsAgent
+        Responsibility: academic / technical research trends. Own ReAct
+        loop. Own tool: research_search (arXiv).
+
+    Each specialist independently runs a full Reason -> Act -> Observe loop
+    with its own tool before returning a scoped answer to the Supervisor.
+    The Supervisor then performs the final synthesis step, combining both
+    specialists' findings — this is the "meaningful collaboration between
+    agents" layer, not just two tools bolted onto one agent.
 
 Run:
-    pip install -r requirements.txt   (see pip install line below)
-    export GOOGLE_API_KEY="..."
-    export TAVILY_API_KEY="..."
+    pip install -r requirements.txt
+    (fill in .env with GOOGLE_API_KEY and TAVILY_API_KEY)
     python main.py
 """
 
@@ -28,11 +38,11 @@ load_dotenv()  # reads .env file in the current directory, if present
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_tavily import TavilySearch
-from langchain_community.tools.arxiv.tool import ArxivQueryRun
-from langchain_community.utilities.arxiv import ArxivAPIWrapper
+from langchain_core.tools import tool
+import arxiv
 from langgraph.prebuilt import create_react_agent
-from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
@@ -44,15 +54,34 @@ def check_env() -> None:
     ]
     if missing:
         print(f"[ERROR] Missing environment variables: {', '.join(missing)}")
-        print("Set them before running, e.g.:")
-        print('  export GOOGLE_API_KEY="your-gemini-key"')
-        print('  export TAVILY_API_KEY="your-tavily-key"')
+        print("Set them in a .env file (see .env.example), e.g.:")
+        print('  GOOGLE_API_KEY="your-gemini-key"')
+        print('  TAVILY_API_KEY="your-tavily-key"')
         sys.exit(1)
 
 
+def get_llm(temperature: float = 0.2) -> ChatGoogleGenerativeAI:
+    return ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=temperature)
+
+
 # ---------------------------------------------------------------------------
-# 2. Tool 1 -> Web / News search (competitor moves, launches, press, funding)
+# 2. Specialist 1 — CompetitorIntelAgent
+#    Responsibility: news, competitor moves, funding, launches, market signals
 # ---------------------------------------------------------------------------
+COMPETITOR_AGENT_PROMPT = """You are the Competitor Intelligence specialist.
+
+Your ONLY responsibility: find and summarize live, time-sensitive information —
+competitor announcements, product launches, funding rounds, pricing changes,
+market moves, industry press. You do NOT cover academic research; that is a
+different specialist's job.
+
+Use the `web_search` tool as many times as needed, refining your query each
+round, until you have enough to answer. Then return a concise, factual
+summary of what you found (not a full report — the Supervisor will combine
+your findings with another specialist's).
+"""
+
+
 def make_web_search_tool() -> TavilySearch:
     return TavilySearch(
         max_results=5,
@@ -60,100 +89,196 @@ def make_web_search_tool() -> TavilySearch:
         description=(
             "Search the live web for recent news, competitor announcements, "
             "product launches, funding rounds, blog posts, and industry press. "
-            "Use this for anything time-sensitive or company/market specific. "
             "Input should be a focused search query string."
         ),
     )
 
 
-# ---------------------------------------------------------------------------
-# 3. Tool 2 -> Academic / research search (papers, research trends)
-# ---------------------------------------------------------------------------
-def make_research_search_tool() -> ArxivQueryRun:
-    wrapper = ArxivAPIWrapper(top_k_results=5, doc_content_chars_max=2000)
-    tool = ArxivQueryRun(api_wrapper=wrapper)
-    tool.name = "research_search"
-    tool.description = (
-        "Search arXiv for academic papers and research trends on a technical "
-        "topic (e.g. new model architectures, algorithms, patents-adjacent "
-        "research). Use this when the user asks about research direction, "
-        "state-of-the-art techniques, or what's being published in a field. "
-        "Input should be a focused topic/keyword string."
+def build_competitor_agent():
+    return create_react_agent(
+        model=get_llm(),
+        tools=[make_web_search_tool()],
+        prompt=COMPETITOR_AGENT_PROMPT,
     )
-    return tool
 
 
 # ---------------------------------------------------------------------------
-# 4. Build the ReAct agent
+# 3. Specialist 2 — ResearchTrendsAgent
+#    Responsibility: academic papers / research direction
 # ---------------------------------------------------------------------------
-SYSTEM_PROMPT = """You are an autonomous Research & Competitor Tracking analyst.
+RESEARCH_AGENT_PROMPT = """You are the Research Trends specialist.
 
-Your job: given a user request about a company, technology, or industry,
-figure out what information is needed, call the right tool(s) to gather it,
-and produce a concise, decision-ready briefing.
+Your ONLY responsibility: find and summarize academic/technical research —
+papers, methods, algorithms, state-of-the-art techniques. You do NOT cover
+live news, funding, or company announcements; that is a different
+specialist's job.
 
-Rules:
-- Use `web_search` for anything current: competitor news, product launches,
-  funding, hiring signals, market moves, patents filed recently reported in press.
-- Use `research_search` for academic/technical research trends (arXiv papers).
-- You may call multiple tools, and call the same tool more than once with
-  refined queries, before answering.
-- Always reason about which tool fits before acting.
-- When you have enough information, produce a Final Answer structured as:
-    1. Summary (2-3 sentences)
-    2. Key Findings (bullet points, with source names/links where available)
-    3. Suggested Next Actions (2-3 bullets)
-- Be factual. If sources conflict or info is thin, say so explicitly.
+Use the `research_search` tool as many times as needed, refining your query
+each round, until you have enough to answer. Then return a concise, factual
+summary of what you found (not a full report — the Supervisor will combine
+your findings with another specialist's).
 """
 
 
-def build_agent():
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-3.6-flash",
-        temperature=0.2,
+def make_research_search_tool():
+    @tool
+    def research_search(query: str) -> str:
+        """Search arXiv for academic papers and research trends on a technical
+        topic. Input should be a focused topic/keyword string."""
+        client = arxiv.Client()
+        search = arxiv.Search(
+            query=query,
+            max_results=5,
+            sort_by=arxiv.SortCriterion.Relevance,
+        )
+        entries = []
+        for r in client.results(search):
+            authors = ", ".join(a.name for a in r.authors[:4])
+            summary = r.summary.replace("\n", " ").strip()
+            if len(summary) > 400:
+                summary = summary[:400] + "..."
+            entries.append(
+                f"Title: {r.title}\n"
+                f"Authors: {authors}\n"
+                f"Published: {r.published.date()}\n"
+                f"Summary: {summary}\n"
+                f"URL: {r.entry_id}"
+            )
+        if not entries:
+            return "No arXiv results found for this query."
+        return "\n\n---\n\n".join(entries)
+
+    return research_search
+
+
+def build_research_agent():
+    return create_react_agent(
+        model=get_llm(),
+        tools=[make_research_search_tool()],
+        prompt=RESEARCH_AGENT_PROMPT,
     )
-
-    tools = [make_web_search_tool(), make_research_search_tool()]
-
-    checkpointer = MemorySaver()  # lets the agent keep short-term context across turns
-
-    agent = create_react_agent(
-        model=llm,
-        tools=tools,
-        checkpointer=checkpointer,
-    )
-    return agent
 
 
 # ---------------------------------------------------------------------------
-# 5. Run helper — streams the Reason/Act/Observe loop to the terminal
+# 4. Supervisor — decides routing, then synthesizes
 # ---------------------------------------------------------------------------
-def run_query(agent, query: str, thread_id: str = "session-1") -> str:
-    config = {"configurable": {"thread_id": thread_id}}
-    messages = [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=query)]
+class RoutingDecision(BaseModel):
+    need_competitor_agent: bool = Field(
+        description="True if the query needs live news/competitor/market intel"
+    )
+    need_research_agent: bool = Field(
+        description="True if the query needs academic/technical research trends"
+    )
+    reasoning: str = Field(description="One sentence explaining the routing choice")
 
-    final_text = ""
+
+SUPERVISOR_ROUTING_PROMPT = """You are the Supervisor of a multi-agent research
+system. Given the user's query, decide which specialist agent(s) are needed:
+
+- competitor_agent: live news, competitor moves, funding, launches, market signals
+- research_agent: academic papers, technical research trends
+
+A query may need one or both. Route to both only when the query genuinely
+spans both domains.
+"""
+
+SUPERVISOR_SYNTHESIS_PROMPT = """You are the Supervisor of a multi-agent research
+system. You dispatched specialist agent(s) and received their findings below.
+Synthesize them into ONE final, decision-ready briefing structured as:
+
+1. Summary (2-3 sentences)
+2. Key Findings (bullet points; note which specialist each finding came from)
+3. Suggested Next Actions (2-3 bullets)
+
+Be factual. If a specialist's findings are thin or conflict, say so explicitly.
+"""
+
+
+def route_query(llm: ChatGoogleGenerativeAI, query: str) -> RoutingDecision:
+    router = llm.with_structured_output(RoutingDecision)
+    result = router.invoke([
+        SystemMessage(content=SUPERVISOR_ROUTING_PROMPT),
+        HumanMessage(content=query),
+    ])
+    return result
+
+
+def extract_text(content) -> str:
+    """Gemini sometimes returns content as a list of parts (text/dict blocks,
+    occasionally including non-text blocks like thought signatures) instead
+    of a plain string. This flattens it down to clean text."""
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+        return "\n".join(p for p in parts if p)
+    return content
+
+
+def synthesize(llm: ChatGoogleGenerativeAI, query: str, findings: dict) -> str:
+    findings_block = "\n\n".join(
+        f"--- {name} findings ---\n{text}" for name, text in findings.items()
+    )
+    result = llm.invoke([
+        SystemMessage(content=SUPERVISOR_SYNTHESIS_PROMPT),
+        HumanMessage(content=f"Original query: {query}\n\n{findings_block}"),
+    ])
+    return extract_text(result.content)
+
+
+# ---------------------------------------------------------------------------
+# 5. Orchestration — run the full multi-agent flow, printing each step
+# ---------------------------------------------------------------------------
+def run_query(query: str) -> str:
+    llm = get_llm()
     print(f"\n{'='*70}\nUSER QUERY: {query}\n{'='*70}")
 
-    for step in agent.stream({"messages": messages}, config=config, stream_mode="values"):
-        last_msg = step["messages"][-1]
+    # --- Supervisor: routing decision ---
+    decision = route_query(llm, query)
+    print(f"\n[SUPERVISOR] Routing decision: {decision.reasoning}")
+    print(f"  -> competitor_agent: {decision.need_competitor_agent}")
+    print(f"  -> research_agent:   {decision.need_research_agent}")
 
-        # Tool call requested by the LLM (the "Act" step)
-        if getattr(last_msg, "tool_calls", None):
-            for tc in last_msg.tool_calls:
-                print(f"\n[ACT] Calling tool: {tc['name']}  |  args: {tc['args']}")
+    findings = {}
 
-        # Tool result (the "Observe" step)
-        elif last_msg.type == "tool":
-            preview = str(last_msg.content)[:300].replace("\n", " ")
-            print(f"[OBSERVE] ({last_msg.name}) -> {preview}...")
+    # --- Specialist 1 ---
+    if decision.need_competitor_agent:
+        print("\n[AGENT: CompetitorIntelAgent] starting...")
+        agent = build_competitor_agent()
+        for step in agent.stream({"messages": [HumanMessage(content=query)]}, stream_mode="values"):
+            last_msg = step["messages"][-1]
+            if getattr(last_msg, "tool_calls", None):
+                for tc in last_msg.tool_calls:
+                    print(f"  [ACT] {tc['name']} | args: {tc['args']}")
+            elif last_msg.type == "tool":
+                print(f"  [OBSERVE] -> {str(last_msg.content)[:200]}...")
+            elif last_msg.type == "ai" and last_msg.content:
+                findings["CompetitorIntelAgent"] = extract_text(last_msg.content)
+        print("[AGENT: CompetitorIntelAgent] done.")
 
-        # Final AI answer
-        elif last_msg.type == "ai" and last_msg.content:
-            final_text = last_msg.content
-            print(f"\n[REASON/FINAL ANSWER]\n{final_text}")
+    # --- Specialist 2 ---
+    if decision.need_research_agent:
+        print("\n[AGENT: ResearchTrendsAgent] starting...")
+        agent = build_research_agent()
+        for step in agent.stream({"messages": [HumanMessage(content=query)]}, stream_mode="values"):
+            last_msg = step["messages"][-1]
+            if getattr(last_msg, "tool_calls", None):
+                for tc in last_msg.tool_calls:
+                    print(f"  [ACT] {tc['name']} | args: {tc['args']}")
+            elif last_msg.type == "tool":
+                print(f"  [OBSERVE] -> {str(last_msg.content)[:200]}...")
+            elif last_msg.type == "ai" and last_msg.content:
+                findings["ResearchTrendsAgent"] = extract_text(last_msg.content)
+        print("[AGENT: ResearchTrendsAgent] done.")
 
-    return final_text
+    # --- Supervisor: synthesis ---
+    print("\n[SUPERVISOR] Synthesizing final briefing...")
+    final = synthesize(llm, query, findings)
+    print(f"\n[FINAL BRIEFING]\n{final}")
+    return final
 
 
 # ---------------------------------------------------------------------------
@@ -162,34 +287,30 @@ def run_query(agent, query: str, thread_id: str = "session-1") -> str:
 SAMPLE_QUERIES: List[str] = [
     "Track the latest competitor moves and funding news for OpenAI vs Anthropic this month.",
     "What's the current research trend in on-device LLM inference for mobile phones?",
-    "Summarize recent news on autonomous delivery robots for campus/last-mile use, plus any relevant academic research on the topic.",
+    "Summarize recent news on autonomous delivery robots for last-mile delivery, plus any relevant academic research on the topic.",
 ]
 
 
 def main():
     check_env()
-    agent = build_agent()
-
-    print("Research & Competitor Tracking Agent — ReAct (Gemini + LangGraph)")
-    print("Type a query, or press Enter to run the built-in sample queries. 'exit' to quit.\n")
+    print("Research & Competitor Tracking — Multi-Agent System (Supervisor + 2 specialists)")
+    print("Type a query, or press Enter to run built-in sample queries. 'exit' to quit.\n")
 
     user_in = input("Query (blank = run samples): ").strip()
-
     if user_in.lower() == "exit":
         return
 
     if user_in:
-        run_query(agent, user_in)
+        run_query(user_in)
     else:
-        for i, q in enumerate(SAMPLE_QUERIES, 1):
-            run_query(agent, q, thread_id=f"sample-{i}")
+        for q in SAMPLE_QUERIES:
+            run_query(q)
 
-    # Simple interactive continuation loop
     while True:
         follow_up = input("\nAsk another question ('exit' to quit): ").strip()
         if follow_up.lower() in ("exit", "quit", ""):
             break
-        run_query(agent, follow_up)
+        run_query(follow_up)
 
 
 if __name__ == "__main__":
