@@ -1,18 +1,16 @@
 """
-FastAPI backend for the multi-agent Research & Competitor Tracking system.
-
-Streams, over Server-Sent Events:
-  - the Supervisor's routing decision
-  - each specialist agent's own ACT/OBSERVE trace (tagged with agent name)
-  - the Supervisor's final synthesized briefing
+FastAPI backend for the LangGraph StateGraph multi-agent system.
+Streams each node's trace events (act/observe/self_eval/final/etc.) to the
+frontend over Server-Sent Events as they complete.
 
 Run:
     pip install -r requirements.txt
-    (fill .env with GOOGLE_API_KEY and TAVILY_API_KEY)
+    (fill .env with GROQ_API_KEY and TAVILY_API_KEY)
     uvicorn server:app --reload --port 8000
 """
 
 import json
+import uuid
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -21,21 +19,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from langchain_core.messages import HumanMessage
 
-from main import (
-    check_env,
-    get_llm,
-    route_query,
-    synthesize,
-    build_competitor_agent,
-    build_research_agent,
-    extract_text,
-)
+from main import check_env, build_agent_graph
 
 check_env()
 
-app = FastAPI(title="Research & Competitor Tracking — Multi-Agent API")
+app = FastAPI(title="Research & Competitor Tracking — LangGraph API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,75 +42,60 @@ def sse(event_type: str, payload: dict) -> str:
     return f"data: {json.dumps({'type': event_type, **payload})}\n\n"
 
 
-def run_specialist_streaming(agent, query: str, agent_name: str):
-    """Yields SSE events for one specialist's ReAct loop; returns its final text."""
-    final_text = ""
-    for step in agent.stream({"messages": [HumanMessage(content=query)]}, stream_mode="values"):
-        last_msg = step["messages"][-1]
+def stream_graph_response(query: str):
+    graph = build_agent_graph()
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 25}
+    initial_state = {
+        "query": query, "iteration_count": 0, "specialist_results": [],
+        "trace": [], "tool_failures": [], "conflicts_detected": [],
+        "uncertainty_score": 0.0, "status": "STARTED",
+    }
 
-        if getattr(last_msg, "tool_calls", None):
-            for tc in last_msg.tool_calls:
-                yield sse("act", {"agent": agent_name, "tool": tc["name"], "args": tc["args"]})
-
-        elif last_msg.type == "tool":
-            yield sse("observe", {
-                "agent": agent_name,
-                "tool": last_msg.name,
-                "content": str(last_msg.content)[:800],
-            })
-
-        elif last_msg.type == "ai" and last_msg.content:
-            final_text = extract_text(last_msg.content)
-
-    return final_text
-
-
-def stream_multi_agent_response(query: str):
-    llm = get_llm()
-
-    yield sse("status", {"message": "Supervisor deciding routing..."})
+    yield sse("status", {"message": "Graph execution started"})
 
     try:
-        decision = route_query(llm, query)
-        yield sse("supervisor_route", {
-            "reasoning": decision.reasoning,
-            "need_competitor_agent": decision.need_competitor_agent,
-            "need_research_agent": decision.need_research_agent,
-        })
+        seen_trace_count = 0
+        seen_findings_count = 0
+        for update in graph.stream(initial_state, config=config, stream_mode="values"):
+            trace = update.get("trace", [])
+            new_entries = trace[seen_trace_count:]
+            seen_trace_count = len(trace)
 
-        findings = {}
+            for entry in new_entries:
+                etype = entry.get("type")
+                if etype == "supervisor_route":
+                    yield sse("supervisor_route", {
+                        "reasoning": entry["reasoning"],
+                        "need_competitor_agent": entry["need_competitor"],
+                        "need_research_agent": entry["need_research"],
+                    })
+                elif etype == "agent_start":
+                    yield sse("agent_start", {"agent": entry["agent"]})
+                elif etype == "act":
+                    yield sse("act", {"agent": entry["agent"], "tool": entry["tool"], "args": entry["args"]})
+                elif etype == "observe":
+                    yield sse("observe", {"agent": entry["agent"], "tool": entry["tool"], "content": entry["content"]})
+                elif etype == "agent_done":
+                    yield sse("agent_done", {"agent": entry["agent"]})
+                elif etype == "self_eval":
+                    yield sse("self_eval", {
+                        "conflicts": entry["conflicts"],
+                        "uncertainty_score": entry["uncertainty_score"],
+                        "reasoning": entry["reasoning"],
+                    })
+                elif etype == "final":
+                    yield sse("final", {"content": entry["content"]})
+                elif etype == "error":
+                    yield sse("error", {"message": entry["message"]})
 
-        if decision.need_competitor_agent:
-            yield sse("agent_start", {"agent": "CompetitorIntelAgent"})
-            agent = build_competitor_agent()
-            gen = run_specialist_streaming(agent, query, "CompetitorIntelAgent")
-            final_text = ""
-            try:
-                while True:
-                    event = next(gen)
-                    yield event
-            except StopIteration as stop:
-                final_text = stop.value or ""
-            findings["CompetitorIntelAgent"] = final_text
-            yield sse("agent_done", {"agent": "CompetitorIntelAgent"})
-
-        if decision.need_research_agent:
-            yield sse("agent_start", {"agent": "ResearchTrendsAgent"})
-            agent = build_research_agent()
-            gen = run_specialist_streaming(agent, query, "ResearchTrendsAgent")
-            final_text = ""
-            try:
-                while True:
-                    event = next(gen)
-                    yield event
-            except StopIteration as stop:
-                final_text = stop.value or ""
-            findings["ResearchTrendsAgent"] = final_text
-            yield sse("agent_done", {"agent": "ResearchTrendsAgent"})
-
-        yield sse("status", {"message": "Supervisor synthesizing final briefing..."})
-        final_briefing = synthesize(llm, query, findings)
-        yield sse("final", {"content": final_briefing})
+            # emit "finding" events as soon as each specialist's result lands
+            # (before the final briefing), so the document cards populate first
+            results = update.get("specialist_results", [])
+            new_findings = results[seen_findings_count:]
+            seen_findings_count = len(results)
+            for r in new_findings:
+                yield sse("finding", {"agent": r["agent"], "content": r["data"]})
 
     except Exception as e:
         yield sse("error", {"message": str(e)})
@@ -132,12 +106,9 @@ def stream_multi_agent_response(query: str):
 @app.post("/api/query")
 def query(req: QueryRequest):
     return StreamingResponse(
-        stream_multi_agent_response(req.query),
+        stream_graph_response(req.query),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

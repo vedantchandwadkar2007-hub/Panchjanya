@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SIGNAL — Multi-Agent Research &amp; Competitor Tracking</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0B0E11;
+    --void:#090B0D;
     --surface:#12161B;
     --border:#232931;
     --text:#E8ECEF;
@@ -18,21 +18,30 @@
     --amber:#F0A83B;
     --violet:#B892E8;
     --red:#E5645A;
+    --paper:#F2ECDD;
+    --paper-edge:#DCD3B8;
+    --ink:#2B2416;
+    --ink-soft:#5B5238;
+    --stamp:#8B2635;
     --font-display:'IBM Plex Mono', monospace;
     --font-body:'IBM Plex Sans', sans-serif;
+    --font-serif:'Newsreader', serif;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; }
+  }
   body{
-    background:var(--bg); color:var(--text); font-family:var(--font-body); min-height:100vh;
+    background:var(--void); color:var(--text); font-family:var(--font-body); min-height:100vh;
     background-image:
-      linear-gradient(rgba(79,209,197,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(79,209,197,0.025) 1px, transparent 1px);
+      linear-gradient(rgba(79,209,197,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79,209,197,0.02) 1px, transparent 1px);
     background-size: 32px 32px;
   }
   header{
     display:flex; align-items:center; justify-content:space-between;
     padding:18px 28px; border-bottom:1px solid var(--border);
-    background:rgba(11,14,17,0.9); position:sticky; top:0; z-index:10; backdrop-filter:blur(6px);
+    background:rgba(9,11,13,0.9); position:sticky; top:0; z-index:20; backdrop-filter:blur(6px);
   }
   .brand{display:flex; align-items:center; gap:12px;}
   .brand .mark{ width:10px; height:10px; border-radius:50%; background:var(--teal); box-shadow:0 0 0 3px rgba(79,209,197,0.15); }
@@ -50,9 +59,10 @@
   .status-pill.done{ color:var(--amber); border-color:#5c4420; }
   @keyframes pulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(79,209,197,0.5); } 50%{ box-shadow:0 0 0 6px rgba(79,209,197,0); } }
 
-  main{ display:grid; grid-template-columns: 1fr 1.15fr; gap:1px; background:var(--border); min-height:calc(100vh - 61px); }
-  @media (max-width: 900px){ main{ grid-template-columns: 1fr; } }
-  .panel{ background:var(--bg); padding:26px 28px 40px; }
+  main{ display:grid; grid-template-columns: 1fr 1.2fr; gap:1px; background:var(--border); min-height:calc(100vh - 61px); }
+  @media (max-width: 960px){ main{ grid-template-columns: 1fr; } }
+  .panel{ background:var(--void); padding:26px 28px 40px; }
+  .panel.docs{ padding-top:26px; overflow:visible; }
 
   .query-box{ display:flex; gap:10px; margin-bottom:20px; }
   .query-box input{
@@ -76,9 +86,7 @@
   .route-card.show{ display:block; }
   .route-card .label{ color:var(--muted); letter-spacing:0.1em; margin-bottom:8px; }
   .route-card .agents{ display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
-  .agent-chip{
-    padding:4px 10px; border-radius:14px; border:1px solid var(--border); font-size:11px;
-  }
+  .agent-chip{ padding:4px 10px; border-radius:14px; border:1px solid var(--border); font-size:11px; }
   .agent-chip.active{ border-color:var(--teal-dim); color:var(--teal); }
   .agent-chip.inactive{ color:var(--muted); opacity:0.5; }
   .route-card .reasoning{ color:var(--text); font-family:var(--font-body); font-size:13px; line-height:1.5; }
@@ -111,10 +119,78 @@
   }
   .empty-state{ color:var(--muted); font-family:var(--font-display); font-size:12.5px; line-height:1.7; }
 
-  .briefing-card{
-    background:var(--surface); border:1px solid var(--border); border-radius:10px;
-    padding:22px 24px; line-height:1.65; font-size:14.5px; color:var(--text); white-space:pre-wrap;
+  /* ---------- Document cards: research paper + patent dossier ---------- */
+  .doc-row{ display:grid; grid-template-columns: 1fr 1fr; gap:22px; margin-bottom:34px; }
+  @media (max-width: 700px){ .doc-row{ grid-template-columns: 1fr; } }
+
+  .doc-slot{ position:relative; min-height:180px; }
+  .doc-placeholder{
+    height:100%; min-height:180px; border:1px dashed var(--border); border-radius:4px;
+    display:flex; align-items:center; justify-content:center; text-align:center; padding:20px;
+    color:var(--muted); font-family:var(--font-display); font-size:11px; letter-spacing:0.04em; line-height:1.6;
   }
+
+  .doc-card{
+    position:relative; background:var(--paper); color:var(--ink); border-radius:2px;
+    padding:22px 22px 26px; transform:rotate(-1.1deg);
+    box-shadow: 0 18px 34px rgba(0,0,0,0.45), 0 2px 0 var(--paper-edge);
+    animation: settle 0.5s cubic-bezier(.2,.8,.2,1), float 7s ease-in-out 0.5s infinite alternate;
+  }
+  .doc-card::before, .doc-card::after{
+    content:''; position:absolute; inset:0; background:var(--paper); border-radius:2px; z-index:-1;
+  }
+  .doc-card::before{ transform:rotate(2deg) translate(3px, 4px); opacity:0.9; }
+  .doc-card::after{ transform:rotate(-2.5deg) translate(-3px, 6px); opacity:0.7; }
+  .doc-card.patent{ transform:rotate(1deg); }
+  .doc-card.patent::before{ transform:rotate(-1.6deg) translate(-3px, 4px); }
+  .doc-card.patent::after{ transform:rotate(2.2deg) translate(4px, 6px); }
+
+  @keyframes settle{ from{ opacity:0; transform:translateY(14px) rotate(-4deg); } to{ opacity:1; transform:translateY(0) rotate(-1.1deg); } }
+  @keyframes float{ from{ transform:translateY(0) rotate(-1.1deg); } to{ transform:translateY(-6px) rotate(-0.4deg); } }
+  .doc-card.patent{ animation-name: settle-p, float-p; }
+  @keyframes settle-p{ from{ opacity:0; transform:translateY(14px) rotate(4deg); } to{ opacity:1; transform:translateY(0) rotate(1deg); } }
+  @keyframes float-p{ from{ transform:translateY(0) rotate(1deg); } to{ transform:translateY(-6px) rotate(1.7deg); } }
+
+  .doc-kicker{
+    font-family:var(--font-display); font-size:10px; letter-spacing:0.14em; text-transform:uppercase;
+    color:var(--ink-soft); margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;
+    border-bottom:1px solid var(--paper-edge); padding-bottom:8px;
+  }
+  .doc-title{ font-family:var(--font-serif); font-size:19px; font-weight:600; line-height:1.3; margin-bottom:10px; }
+  .doc-body{
+    font-family:var(--font-serif); font-size:13.5px; line-height:1.65; color:var(--ink-soft);
+    max-height:220px; overflow-y:auto; white-space:pre-wrap; padding-right:4px;
+  }
+  .doc-body::-webkit-scrollbar{ width:5px; }
+  .doc-body::-webkit-scrollbar-thumb{ background:var(--paper-edge); border-radius:4px; }
+
+  .stamp{
+    position:absolute; top:14px; right:16px; width:64px; height:64px; border-radius:50%;
+    border:2px solid var(--stamp); color:var(--stamp); display:flex; align-items:center; justify-content:center;
+    text-align:center; font-family:var(--font-display); font-size:8.5px; font-weight:700; letter-spacing:0.05em;
+    transform:rotate(11deg); opacity:0.82; mix-blend-mode:multiply;
+    box-shadow: inset 0 0 0 1px var(--stamp);
+  }
+  .stamp span{ display:block; }
+
+  /* ---------- Final sealed briefing ---------- */
+  .briefing-wrap{ margin-top:8px; }
+  .briefing-doc{
+    position:relative; background:var(--paper); color:var(--ink); border-radius:2px;
+    padding:28px 30px 32px; box-shadow: 0 22px 44px rgba(0,0,0,0.5), 0 2px 0 var(--paper-edge);
+    animation: settle 0.6s cubic-bezier(.2,.8,.2,1);
+  }
+  .briefing-kicker{
+    font-family:var(--font-display); font-size:10.5px; letter-spacing:0.16em; text-transform:uppercase;
+    color:var(--ink-soft); margin-bottom:14px; border-bottom:1px solid var(--paper-edge); padding-bottom:10px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .briefing-seal{
+    font-family:var(--font-display); font-size:9.5px; letter-spacing:0.08em; color:var(--teal-dim);
+    border:1px solid var(--teal-dim); border-radius:12px; padding:3px 9px;
+  }
+  .briefing-body{ font-family:var(--font-serif); font-size:15px; line-height:1.75; white-space:pre-wrap; }
+
   .briefing-placeholder{
     color:var(--muted); font-size:13.5px; line-height:1.7; border:1px dashed var(--border);
     border-radius:10px; padding:24px;
@@ -157,11 +233,21 @@
     </div>
   </section>
 
-  <section class="panel">
-    <div class="section-label">briefing</div>
-    <div id="briefingWrap">
+  <section class="panel docs">
+    <div class="section-label">specialist findings</div>
+    <div class="doc-row" id="docRow">
+      <div class="doc-slot" id="researchSlot">
+        <div class="doc-placeholder">Research Dossier<br>awaiting ResearchTrendsAgent</div>
+      </div>
+      <div class="doc-slot" id="patentSlot">
+        <div class="doc-placeholder">Market Intel File<br>awaiting CompetitorIntelAgent</div>
+      </div>
+    </div>
+
+    <div class="section-label">final briefing</div>
+    <div class="briefing-wrap" id="briefingWrap">
       <div class="briefing-placeholder">
-        The Supervisor's <span class="k">synthesized briefing</span> — combining findings from whichever specialist agent(s) were dispatched — renders here once complete.
+        The Supervisor's <span class="k">sealed briefing</span> — combining both specialist documents above — appears here once synthesis is complete.
       </div>
     </div>
   </section>
@@ -180,6 +266,8 @@ const routeCard = document.getElementById('routeCard');
 const chipCompetitor = document.getElementById('chipCompetitor');
 const chipResearch = document.getElementById('chipResearch');
 const routeReasoning = document.getElementById('routeReasoning');
+const researchSlot = document.getElementById('researchSlot');
+const patentSlot = document.getElementById('patentSlot');
 
 function setStatus(mode, label){
   statusPill.className = 'status-pill' + (mode ? ' ' + mode : '');
@@ -198,6 +286,27 @@ function addStep(kind, tag, body, agentLabel){
   trace.scrollTop = trace.scrollHeight;
 }
 
+function renderResearchPaper(content){
+  researchSlot.innerHTML = `
+    <div class="doc-card">
+      <div class="doc-kicker"><span>Research Dossier</span><span>arXiv</span></div>
+      <div class="doc-title">Findings — Technical Trends</div>
+      <div class="doc-body"></div>
+    </div>`;
+  researchSlot.querySelector('.doc-body').textContent = content;
+}
+
+function renderPatentFile(content){
+  patentSlot.innerHTML = `
+    <div class="doc-card patent">
+      <div class="stamp"><span>MARKET</span><span>INTEL</span><span>FILED</span></div>
+      <div class="doc-kicker"><span>Competitor Dossier</span><span>Live Web</span></div>
+      <div class="doc-title">Findings — Market Signals</div>
+      <div class="doc-body"></div>
+    </div>`;
+  patentSlot.querySelector('.doc-body').textContent = content;
+}
+
 async function runQuery(){
   const q = input.value.trim();
   if (!q) return;
@@ -207,6 +316,8 @@ async function runQuery(){
   routeCard.classList.remove('show');
   chipCompetitor.className = 'agent-chip inactive';
   chipResearch.className = 'agent-chip inactive';
+  researchSlot.innerHTML = '<div class="doc-placeholder">Research Dossier<br>awaiting ResearchTrendsAgent</div>';
+  patentSlot.innerHTML = '<div class="doc-placeholder">Market Intel File<br>awaiting CompetitorIntelAgent</div>';
   btn.disabled = true;
   setStatus('live', 'reasoning');
 
@@ -243,19 +354,32 @@ async function runQuery(){
           addStep('agent', `AGENT START`, `${evt.agent} beginning its ReAct loop...`, evt.agent);
         } else if (evt.type === 'agent_done'){
           addStep('agent', `AGENT DONE`, `${evt.agent} finished.`, evt.agent);
+        } else if (evt.type === 'finding'){
+          if (evt.agent === 'ResearchTrendsAgent') renderResearchPaper(evt.content);
+          if (evt.agent === 'CompetitorIntelAgent') renderPatentFile(evt.content);
         } else if (evt.type === 'act'){
           addStep('act', `ACT · ${evt.tool}`, JSON.stringify(evt.args), evt.agent);
         } else if (evt.type === 'observe'){
           addStep('observe', `OBSERVE · ${evt.tool}`, evt.content, evt.agent);
+        } else if (evt.type === 'self_eval'){
+          const conflictText = evt.conflicts.length
+            ? evt.conflicts.map(c => `⚠ ${c}`).join('\n')
+            : 'No conflicts detected.';
+          addStep('agent', 'SELF-EVAL · uncertainty ' + evt.uncertainty_score.toFixed(2),
+            `${evt.reasoning}\n\n${conflictText}`);
         } else if (evt.type === 'final'){
-          briefingWrap.innerHTML = '<div class="briefing-card"></div>';
-          briefingWrap.querySelector('.briefing-card').textContent = evt.content;
+          briefingWrap.innerHTML = `
+            <div class="briefing-doc">
+              <div class="briefing-kicker"><span>Supervisor Briefing</span><span class="briefing-seal">SEALED</span></div>
+              <div class="briefing-body"></div>
+            </div>`;
+          briefingWrap.querySelector('.briefing-body').textContent = evt.content;
           setStatus('done', 'complete');
         } else if (evt.type === 'error'){
           addStep('error', 'ERROR', evt.message);
           setStatus('done', 'error');
         } else if (evt.type === 'status'){
-          // optional: could surface evt.message somewhere subtle
+          // optional subtle status surfacing
         } else if (evt.type === 'done'){
           if (statusText.textContent === 'reasoning') setStatus('done', 'complete');
         }
