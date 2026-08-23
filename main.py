@@ -49,7 +49,6 @@ import operator
 from dotenv import load_dotenv
 load_dotenv()
 
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from langchain_tavily import TavilySearch
 import arxiv
@@ -79,7 +78,8 @@ def check_env() -> None:
 
 def get_llm(temperature: float = 0.2) -> ChatGroq:
     # openai/gpt-oss-120b on Groq Developer tier. Drop to "openai/gpt-oss-20b"
-    # if on free tier. Swap to ChatGoogleGenerativeAI(model="gemini-3.6-flash")
+    # if on free tier. If you want to swap to Gemini instead, install
+    # langchain-google-genai and use ChatGoogleGenerativeAI(model="gemini-3.6-flash")
     # if you'd rather use Gemini and have quota headroom.
     return ChatGroq(model="openai/gpt-oss-120b", temperature=temperature)
 
