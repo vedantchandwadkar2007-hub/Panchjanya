@@ -254,7 +254,7 @@
 </main>
 
 <script>
-const API_BASE = "http://localhost:8000";
+const API_BASE = window.location.origin.startsWith("file://") ? "http://localhost:8000" : "";
 
 const input = document.getElementById('queryInput');
 const btn = document.getElementById('submitBtn');

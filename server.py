@@ -11,13 +11,15 @@ Run:
 
 import json
 import uuid
+import os
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from main import check_env, build_agent_graph
@@ -115,3 +117,13 @@ def query(req: QueryRequest):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# Serve the frontend as static files from this same app, so the whole thing
+# deploys as one service (one URL for both UI and API — simplest for hosting).
+if os.path.isdir("frontend"):
+    @app.get("/")
+    def serve_frontend():
+        return FileResponse("frontend/index.html")
+
+    app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
